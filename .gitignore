@@ -1,3 +1,8 @@
+citibike_all_rides.json
+citibike_routes.geojson
+merge_routes.py
+.claude/
+maps/
 .DS_Store
 *.pyc
 __pycache__
