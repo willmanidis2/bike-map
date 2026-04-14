@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Citibike Heatmap</title>
+<title>Bikeshare Heatmap</title>
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.1/dist/maplibre-gl.css">
 <style>
   *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
@@ -237,14 +237,15 @@
 
 <!-- ===== SCREEN 1: LANDING ===== -->
 <div id="landing" class="screen active">
-  <div class="logo"><span>Citi</span>bike Heatmap</div>
+  <div class="logo">Bikeshare <span>Heatmap</span></div>
   <div class="tagline">See every ride you've ever taken</div>
-  <div class="subtitle">Upload your Citibike receipt emails. Everything stays in your browser.</div>
+  <div class="subtitle">Upload your ride receipt emails. Everything stays in your browser.</div>
   <div class="privacy-badge">
     <svg viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2z"/></svg>
     100% Private &mdash; your emails never leave your device
   </div>
   <button class="btn-primary" onclick="showScreen('instructions')">Get Started</button>
+  <div style="margin-top:48px;font-size:12px;color:var(--text-faint);">by <a href="https://x.com/WillManidis" target="_blank" style="color:var(--text-dim);text-decoration:none;">@willmanidis</a></div>
 </div>
 
 <!-- ===== SCREEN 2: INSTRUCTIONS ===== -->
@@ -257,12 +258,12 @@
       <button class="tab-btn" onclick="switchTab(this, 'tab-apple')">Apple Mail</button>
     </div>
     <div id="tab-gmail" class="tab-content active">
-      <div style="font-size:13px;color:var(--text-dim);margin-bottom:16px;">Bulk export all your Citibike receipts at once using Google Takeout:</div>
+      <div style="font-size:13px;color:var(--text-dim);margin-bottom:16px;">Bulk export all your ride receipts at once using Google Takeout:</div>
       <ol class="step-list">
         <li>In Gmail, search: <code>from:no-reply@updates.citibikenyc.com subject:"Ride Receipt"</code></li>
-        <li>Select all results, click <strong>"Labels"</strong> (tag icon) and create a new label called <strong>"Citibike"</strong></li>
+        <li>Select all results, click <strong>"Labels"</strong> (tag icon) and create a new label called <strong>"Rides"</strong></li>
         <li>Go to <a href="https://takeout.google.com" target="_blank" style="color:var(--blue);">takeout.google.com</a> &mdash; click <strong>"Deselect all"</strong>, then scroll down and check only <strong>Mail</strong></li>
-        <li>Click <strong>"All Mail data included"</strong> &rarr; select <strong>only the "Citibike" label</strong></li>
+        <li>Click <strong>"All Mail data included"</strong> &rarr; select <strong>only the "Rides" label</strong></li>
         <li>Click <strong>"Create export"</strong>, wait for the ZIP, download and unzip it &mdash; you'll find an <code>.mbox</code> file</li>
         <li>Upload that <code>.mbox</code> file here</li>
       </ol>
@@ -270,7 +271,7 @@
     <div id="tab-outlook" class="tab-content">
       <div style="font-size:13px;color:var(--text-dim);margin-bottom:16px;">Export all your ride receipts in one drag:</div>
       <ol class="step-list">
-        <li>Open Outlook Desktop and search: <strong>"Ride Receipt"</strong> from Citi Bike</li>
+        <li>Open Outlook Desktop and search: <strong>"Ride Receipt"</strong> from your bikeshare</li>
         <li>Press <strong>Ctrl+A</strong> (or <strong>Cmd+A</strong> on Mac) to select all results</li>
         <li>Drag them to a folder on your Desktop &mdash; each becomes a <code>.eml</code> file</li>
         <li>Upload the whole folder here (or select all the <code>.eml</code> files)</li>
@@ -282,7 +283,7 @@
     <div id="tab-apple" class="tab-content">
       <div style="font-size:13px;color:var(--text-dim);margin-bottom:16px;">Export all your ride receipts in one drag:</div>
       <ol class="step-list">
-        <li>In Mail, search for <strong>"Ride Receipt"</strong> from Citi Bike Receipts</li>
+        <li>In Mail, search for <strong>"Ride Receipt"</strong> from your bikeshare</li>
         <li>Press <strong>Cmd+A</strong> to select all matching emails</li>
         <li>Drag them to a folder on your Desktop &mdash; creates <code>.eml</code> files for all of them</li>
         <li>Upload the whole folder here</li>
@@ -330,7 +331,7 @@
 <div id="mapscreen" class="screen hidden">
   <div id="sidebar">
     <div id="map-header">
-      <h1><span>Citi</span>bike Heatmap</h1>
+      <h1>Bikeshare <span>Heatmap</span></h1>
       <div class="subtitle" id="date-range"></div>
     </div>
     <div id="stats">
@@ -651,7 +652,7 @@ async function processFiles(files) {
 
   if (found === 0) {
     progressText.textContent = `Processed ${allFiles.length} files. No rides found.`;
-    errorSection.textContent = `No Citibike ride receipts were detected in the uploaded files. Make sure you're uploading Citibike receipt emails (.eml files).`;
+    errorSection.textContent = `No ride receipts were detected in the uploaded files. Make sure you're uploading bikeshare receipt emails (.eml files).`;
     errorSection.classList.add('active');
     return;
   }
@@ -795,7 +796,7 @@ function readEntry(entry, files) {
 // =============================================
 function saveToStorage() {
   try {
-    localStorage.setItem('citibike_rides', JSON.stringify(geojsonData));
+    localStorage.setItem('bikeshare_rides', JSON.stringify(geojsonData));
   } catch(e) {
     // Storage full, silently fail
   }
@@ -803,7 +804,7 @@ function saveToStorage() {
 
 function loadFromStorage() {
   try {
-    const data = localStorage.getItem('citibike_rides');
+    const data = localStorage.getItem('bikeshare_rides');
     if (data) {
       const parsed = JSON.parse(data);
       if (parsed?.features?.length > 0) {
@@ -880,7 +881,7 @@ function exportGeoJSON() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'citibike_rides.geojson';
+  a.download = 'bikeshare_rides.geojson';
   a.click();
   URL.revokeObjectURL(url);
 }
