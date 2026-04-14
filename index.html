@@ -316,6 +316,10 @@
       <div class="ride-preview-list" id="ride-preview-list"></div>
     </div>
     <div class="upload-error" id="upload-error"></div>
+    <div class="mbox-fallback" id="mbox-fallback" style="display:none;text-align:center;margin-top:16px;">
+      <p style="color:var(--text-dim);font-size:14px;margin-bottom:12px;">Having trouble with .mbox? Download individual .eml files and re-upload those instead:</p>
+      <button class="btn-secondary" id="mbox-convert-btn" onclick="downloadMboxAsEml()">&#x1f4e5; Download as .eml files</button>
+    </div>
     <div class="upload-done" id="upload-done">
       <div class="done-count" id="done-count">0</div>
       <div class="done-label">rides found</div>
@@ -586,6 +590,8 @@ async function processFiles(files) {
   area.classList.add('active');
   doneSection.classList.remove('active');
   errorSection.classList.remove('active');
+  document.getElementById('mbox-fallback').style.display = 'none';
+  window._lastMboxParts = null;
   previewList.innerHTML = '';
 
   // Collect all files (handle directories and mbox)
@@ -599,11 +605,14 @@ async function processFiles(files) {
       const parts = splitMbox(text);
       if (parts.length > 0) {
         progressText.textContent = `Found ${parts.length} emails in ${file.name}...`;
+        // Save parts for .eml conversion fallback
+        window._lastMboxParts = parts;
         parts.forEach((part, i) => {
           allFiles.push({ name: `${file.name}_part${i}.eml`, text: () => Promise.resolve(part), isMbox: true, raw: part });
         });
       } else {
         // Single email or couldn't split - try as-is
+        window._lastMboxParts = [text];
         allFiles.push({ name: file.name, text: () => file.text(), isMbox: true, raw: text });
       }
     } else {
@@ -717,6 +726,10 @@ async function processFiles(files) {
     progressText.textContent = `Processed ${allFiles.length} files. No rides found.`;
     errorSection.textContent = `No ride receipts were detected in the uploaded files. Make sure you're uploading bikeshare receipt emails (.eml files).`;
     errorSection.classList.add('active');
+    // Show mbox conversion fallback if we had mbox parts
+    if (window._lastMboxParts && window._lastMboxParts.length > 0) {
+      document.getElementById('mbox-fallback').style.display = 'block';
+    }
     return;
   }
 
@@ -918,6 +931,56 @@ function addMoreRides() {
   document.getElementById('upload-error').classList.remove('active');
   document.getElementById('progress-fill-upload').style.width = '0';
   document.getElementById('ride-preview-list').innerHTML = '';
+}
+
+function downloadMboxAsEml() {
+  const parts = window._lastMboxParts;
+  if (!parts || parts.length === 0) return;
+
+  if (parts.length === 1) {
+    // Single file — download directly
+    const blob = new Blob([parts[0]], { type: 'message/rfc822' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'email_1.eml';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    return;
+  }
+
+  // Multiple files — create a zip using JSZip (loaded dynamically)
+  const btn = document.getElementById('mbox-convert-btn');
+  btn.textContent = 'Preparing download...';
+  btn.disabled = true;
+
+  // Use a simple approach: download as individual files in quick succession,
+  // or bundle into a single zip via JSZip
+  import('https://esm.sh/jszip@3.10.1').then(async ({ default: JSZip }) => {
+    const zip = new JSZip();
+    parts.forEach((part, i) => {
+      zip.file(`email_${String(i + 1).padStart(4, '0')}.eml`, part);
+    });
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'emails.zip';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    btn.textContent = '📥 Download as .eml files';
+    btn.disabled = false;
+  }).catch(() => {
+    // Fallback: download individually without zip
+    parts.forEach((part, i) => {
+      const blob = new Blob([part], { type: 'message/rfc822' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `email_${String(i + 1).padStart(4, '0')}.eml`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+    btn.textContent = '📥 Download as .eml files';
+    btn.disabled = false;
+  });
 }
 
 function exportGeoJSON() {
