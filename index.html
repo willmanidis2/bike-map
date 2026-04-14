@@ -722,11 +722,52 @@ async function processFiles(files) {
 
   progressFill.style.width = '100%';
 
+  // If mbox processing found nothing, retry each part through the .eml parser path
+  if (found === 0 && window._lastMboxParts && window._lastMboxParts.length > 0) {
+    progressText.textContent = `Retrying ${window._lastMboxParts.length} emails as .eml files...`;
+    await new Promise(r => setTimeout(r, 0));
+    for (let i = 0; i < window._lastMboxParts.length; i++) {
+      const part = window._lastMboxParts[i];
+      const blob = new File([part], `converted_${i}.eml`, { type: 'message/rfc822' });
+      const ride = await parseEmlFile(blob);
+      if (ride) {
+        if (ride.coordinates && ride.coordinates.length > 1) {
+          found++;
+          newRides.push(rideToFeature(ride, found));
+          addPreviewItem(previewList, ride);
+        } else {
+          let startCoords = null, endCoords = null;
+          if (ride.origin_lat && ride.origin_lng) startCoords = [ride.origin_lat, ride.origin_lng];
+          else if (ride.startStation) startCoords = findStationCoords(ride.startStation);
+          if (ride.dest_lat && ride.dest_lng) endCoords = [ride.dest_lat, ride.dest_lng];
+          else if (ride.endStation) endCoords = findStationCoords(ride.endStation);
+          if (startCoords && endCoords) osrmQueue.push({ ride, startCoords, endCoords });
+        }
+      }
+      progressText.textContent = `Retrying... ${i+1}/${window._lastMboxParts.length} (Found ${found})`;
+      if (i % 5 === 0) await new Promise(r => setTimeout(r, 0));
+    }
+    // Process any new OSRM fallbacks from retry
+    if (found === 0 && osrmQueue.length > 0) {
+      for (let i = 0; i < osrmQueue.length; i++) {
+        const { ride, startCoords, endCoords } = osrmQueue[i];
+        const coords = await osrmRoute(startCoords[0], startCoords[1], endCoords[0], endCoords[1]);
+        if (coords && coords.length > 1) {
+          ride.coordinates = coords;
+          found++;
+          newRides.push(rideToFeature(ride, found, 'osrm_fallback'));
+          addPreviewItem(previewList, ride);
+        }
+        if (i < osrmQueue.length - 1) await new Promise(r => setTimeout(r, 200));
+      }
+    }
+  }
+
   if (found === 0) {
     progressText.textContent = `Processed ${allFiles.length} files. No rides found.`;
     errorSection.textContent = `No ride receipts were detected in the uploaded files. Make sure you're uploading bikeshare receipt emails (.eml files).`;
     errorSection.classList.add('active');
-    // Show mbox conversion fallback if we had mbox parts
+    // Show mbox conversion fallback as last resort
     if (window._lastMboxParts && window._lastMboxParts.length > 0) {
       document.getElementById('mbox-fallback').style.display = 'block';
     }
