@@ -480,19 +480,39 @@ function extractRideFromHTML(html) {
 function splitMbox(text) {
   // Normalize line endings (Windows \r\n -> \n)
   text = text.replace(/\r\n/g, '\n');
-  // Standard mbox separator: "From " at start of line followed by an email-like token
-  // Gmail Takeout format: "From user@example.com Mon Apr 14 10:30:00 +0000 2026"
-  // Some tools use: "From - Mon Apr 14 10:30:00 2026"
-  const parts = text.split(/^From \S+.*\d{4}\s*$/m).filter(s => s.trim().length > 50);
-  // If splitting didn't produce multiple parts, try a more lenient split
-  if (parts.length <= 1) {
-    const lenient = text.split(/^From /m).filter(s => s.trim().length > 50);
-    if (lenient.length > 1) {
-      // Re-add "From " prefix so PostalMime can parse full headers
-      return lenient.map((part, i) => i === 0 && !text.startsWith('From ') ? part : 'From ' + part);
+
+  // Find all mbox separator positions: lines starting with "From " followed by email/token and date
+  // Gmail Takeout: "From 1234567890@xxx Mon Apr 14 10:30:00 +0000 2026"
+  // Standard: "From user@example.com Mon Apr 14 10:30:00 2026"
+  // Minimal: "From - Mon Apr 14 10:30:00 2026"
+  const separatorRegex = /^From \S+.*\d{4}\s*$/gm;
+  let separators = [];
+  let match;
+  while ((match = separatorRegex.exec(text)) !== null) {
+    separators.push({ start: match.index, end: match.index + match[0].length });
+  }
+
+  // Lenient fallback: just "From " at start of line (but only if it looks like a separator, not a header)
+  if (separators.length === 0) {
+    const lenientRegex = /^From \S+.+\d{2}:\d{2}/gm;
+    while ((match = lenientRegex.exec(text)) !== null) {
+      const lineEnd = text.indexOf('\n', match.index);
+      separators.push({ start: match.index, end: lineEnd > 0 ? lineEnd : match.index + match[0].length });
     }
   }
-  return parts;
+
+  if (separators.length === 0) return [text].filter(s => s.trim().length > 50);
+
+  // Extract email content between separators (skip the separator line itself)
+  const emails = [];
+  for (let i = 0; i < separators.length; i++) {
+    const contentStart = separators[i].end + 1; // skip past the separator line
+    const contentEnd = i + 1 < separators.length ? separators[i + 1].start : text.length;
+    const email = text.substring(contentStart, contentEnd).trim();
+    if (email.length > 50) emails.push(email);
+  }
+
+  return emails;
 }
 
 async function parseEmlFile(file) {
@@ -610,6 +630,31 @@ async function processFiles(files) {
         const email = await parser.parse(new TextEncoder().encode(file.raw));
         if (email.html) ride = extractRideFromHTML(email.html);
       } catch(e) {}
+      // Fallback: if PostalMime failed, try extracting HTML directly from raw text
+      if (!ride && file.raw) {
+        try {
+          // Look for HTML content in the raw email text (handles base64 and quoted-printable)
+          let html = null;
+          // Try raw HTML between tags
+          const htmlMatch = file.raw.match(/<html[^>]*>[\s\S]*?<\/html>/i);
+          if (htmlMatch) html = htmlMatch[0];
+          // Try base64-encoded HTML part
+          if (!html) {
+            const b64Match = file.raw.match(/Content-Type:\s*text\/html[\s\S]*?Content-Transfer-Encoding:\s*base64\s*\n\n([\s\S]*?)(?:\n--|\n\n)/i);
+            if (b64Match) {
+              try { html = atob(b64Match[1].replace(/\s/g, '')); } catch(e2) {}
+            }
+          }
+          // Try quoted-printable HTML part
+          if (!html) {
+            const qpMatch = file.raw.match(/Content-Type:\s*text\/html[\s\S]*?Content-Transfer-Encoding:\s*quoted-printable\s*\n\n([\s\S]*?)(?:\n--)/i);
+            if (qpMatch) {
+              html = qpMatch[1].replace(/=\r?\n/g, '').replace(/=([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+            }
+          }
+          if (html) ride = extractRideFromHTML(html);
+        } catch(e) {}
+      }
     } else {
       ride = await parseEmlFile(file);
     }
