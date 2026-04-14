@@ -478,7 +478,21 @@ function extractRideFromHTML(html) {
 }
 
 function splitMbox(text) {
-  return text.split(/^From .+\d{4}$/m).filter(s => s.trim().length > 100);
+  // Normalize line endings (Windows \r\n -> \n)
+  text = text.replace(/\r\n/g, '\n');
+  // Standard mbox separator: "From " at start of line followed by an email-like token
+  // Gmail Takeout format: "From user@example.com Mon Apr 14 10:30:00 +0000 2026"
+  // Some tools use: "From - Mon Apr 14 10:30:00 2026"
+  const parts = text.split(/^From \S+.*\d{4}\s*$/m).filter(s => s.trim().length > 50);
+  // If splitting didn't produce multiple parts, try a more lenient split
+  if (parts.length <= 1) {
+    const lenient = text.split(/^From /m).filter(s => s.trim().length > 50);
+    if (lenient.length > 1) {
+      // Re-add "From " prefix so PostalMime can parse full headers
+      return lenient.map((part, i) => i === 0 && !text.startsWith('From ') ? part : 'From ' + part);
+    }
+  }
+  return parts;
 }
 
 async function parseEmlFile(file) {
@@ -559,14 +573,18 @@ async function processFiles(files) {
   for (const file of files) {
     if (file.name.endsWith('.mbox') || file.name.endsWith('.txt')) {
       // Try mbox split
+      progressText.textContent = `Reading ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)...`;
+      await new Promise(r => setTimeout(r, 0)); // yield to render
       const text = await file.text();
       const parts = splitMbox(text);
-      if (parts.length > 1) {
+      if (parts.length > 0) {
+        progressText.textContent = `Found ${parts.length} emails in ${file.name}...`;
         parts.forEach((part, i) => {
           allFiles.push({ name: `${file.name}_part${i}.eml`, text: () => Promise.resolve(part), isMbox: true, raw: part });
         });
       } else {
-        allFiles.push(file);
+        // Single email or couldn't split - try as-is
+        allFiles.push({ name: file.name, text: () => file.text(), isMbox: true, raw: text });
       }
     } else {
       allFiles.push(file);
