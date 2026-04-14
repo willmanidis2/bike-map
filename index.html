@@ -1,0 +1,1259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Citibike Heatmap</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.1/dist/maplibre-gl.css">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #0a0a0a; --surface: #111114; --surface2: #1a1a1e; --border: #222; --border2: #2a2a2e;
+    --text: #e0e0e0; --text-dim: #888; --text-dimmer: #666; --text-dimmest: #555; --text-faint: #444;
+    --blue: #3b82f6; --blue-light: #60a5fa; --blue-dark: #2563eb; --amber: #f59e0b; --amber-light: #fbbf24;
+    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  }
+  html, body { height: 100%; overflow: hidden; }
+  body { font-family: var(--font); background: var(--bg); color: var(--text); }
+
+  /* Screen container system */
+  .screen { position: fixed; inset: 0; display: flex; flex-direction: column; transition: opacity 0.4s ease, transform 0.4s ease; z-index: 1; }
+  .screen.hidden { opacity: 0; pointer-events: none; transform: translateY(20px); z-index: 0; }
+  .screen.active { opacity: 1; pointer-events: auto; transform: translateY(0); z-index: 2; }
+
+  /* ===== LANDING ===== */
+  #landing { align-items: center; justify-content: center; text-align: center; background: var(--bg); }
+  #landing .logo { font-size: 56px; font-weight: 800; letter-spacing: -2px; margin-bottom: 12px; line-height: 1; }
+  #landing .logo span { color: var(--blue); }
+  #landing .tagline { font-size: 22px; color: var(--text); font-weight: 500; margin-bottom: 8px; }
+  #landing .subtitle { font-size: 15px; color: var(--text-dimmer); max-width: 420px; line-height: 1.6; margin-bottom: 32px; }
+  #landing .privacy-badge {
+    display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px;
+    border-radius: 100px; background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.15);
+    font-size: 13px; color: var(--text-dim); margin-bottom: 40px;
+  }
+  #landing .privacy-badge svg { width: 16px; height: 16px; fill: var(--blue); flex-shrink: 0; }
+  .btn-primary {
+    padding: 16px 48px; border-radius: 12px; border: none; background: var(--blue);
+    color: #fff; font-size: 17px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+    font-family: var(--font); letter-spacing: -0.2px;
+  }
+  .btn-primary:hover { background: var(--blue-dark); transform: translateY(-1px); box-shadow: 0 8px 24px rgba(59,130,246,0.3); }
+  .btn-secondary {
+    padding: 14px 36px; border-radius: 10px; border: 1px solid var(--border2); background: transparent;
+    color: var(--text); font-size: 15px; font-weight: 500; cursor: pointer; transition: all 0.2s;
+    font-family: var(--font);
+  }
+  .btn-secondary:hover { border-color: var(--blue); color: #fff; }
+
+  /* ===== INSTRUCTIONS ===== */
+  #instructions { align-items: center; justify-content: center; background: var(--bg); padding: 40px 20px; }
+  .instructions-card { max-width: 640px; width: 100%; }
+  .instructions-card h2 { font-size: 28px; font-weight: 700; margin-bottom: 24px; text-align: center; letter-spacing: -0.5px; }
+  .tab-bar { display: flex; gap: 4px; margin-bottom: 24px; background: var(--surface); border-radius: 10px; padding: 4px; }
+  .tab-btn {
+    flex: 1; padding: 10px 16px; border: none; background: transparent; color: var(--text-dim);
+    font-size: 14px; font-weight: 500; cursor: pointer; border-radius: 8px; transition: all 0.2s;
+    font-family: var(--font);
+  }
+  .tab-btn.active { background: var(--surface2); color: #fff; }
+  .tab-btn:hover:not(.active) { color: var(--text); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+  .step-list { list-style: none; counter-reset: steps; padding: 0; }
+  .step-list li {
+    counter-increment: steps; padding: 14px 16px 14px 52px; position: relative;
+    font-size: 14px; line-height: 1.6; color: var(--text-dim); border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .step-list li::before {
+    content: counter(steps); position: absolute; left: 16px; top: 14px;
+    width: 26px; height: 26px; border-radius: 50%; background: rgba(59,130,246,0.12);
+    color: var(--blue); font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step-list li code { background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px; font-size: 12px; color: var(--blue-light); }
+  .instructions-actions { text-align: center; margin-top: 32px; }
+
+  /* ===== UPLOAD ===== */
+  #upload { align-items: center; justify-content: center; background: var(--bg); padding: 40px 20px; }
+  .upload-card { max-width: 700px; width: 100%; }
+  .upload-card h2 { font-size: 28px; font-weight: 700; margin-bottom: 8px; text-align: center; letter-spacing: -0.5px; }
+  .upload-card .upload-sub { font-size: 14px; color: var(--text-dimmer); text-align: center; margin-bottom: 32px; }
+  .drop-zone {
+    border: 2px dashed var(--border2); border-radius: 16px; padding: 60px 40px; text-align: center;
+    cursor: pointer; transition: all 0.3s; position: relative; background: rgba(255,255,255,0.01);
+  }
+  .drop-zone:hover, .drop-zone.dragover { border-color: var(--blue); background: rgba(59,130,246,0.04); }
+  .drop-zone .drop-icon { font-size: 48px; margin-bottom: 16px; opacity: 0.4; }
+  .drop-zone .drop-text { font-size: 16px; color: var(--text-dim); margin-bottom: 8px; }
+  .drop-zone .drop-hint { font-size: 13px; color: var(--text-faint); }
+  .drop-zone input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+
+  .processing-area { margin-top: 24px; display: none; }
+  .processing-area.active { display: block; }
+  .progress-text { font-size: 14px; color: var(--text-dim); margin-bottom: 12px; }
+  .progress-bar-container { height: 4px; background: var(--surface2); border-radius: 2px; overflow: hidden; margin-bottom: 16px; }
+  .progress-bar-fill { height: 100%; background: var(--blue); width: 0; transition: width 0.3s ease; border-radius: 2px; }
+  .ride-preview-list { max-height: 240px; overflow-y: auto; border-radius: 10px; background: var(--surface); }
+  .ride-preview-list::-webkit-scrollbar { width: 5px; }
+  .ride-preview-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+  .ride-preview {
+    padding: 10px 16px; border-bottom: 1px solid rgba(255,255,255,0.03);
+    font-size: 13px; color: var(--text-dim); display: flex; justify-content: space-between;
+  }
+  .ride-preview .rp-route { color: var(--text); }
+  .ride-preview .rp-arrow { color: var(--blue); margin: 0 6px; }
+  .ride-preview .rp-time { color: var(--text-faint); font-size: 12px; }
+
+  .upload-done { display: none; text-align: center; margin-top: 32px; }
+  .upload-done.active { display: block; }
+  .upload-done .done-count { font-size: 48px; font-weight: 800; color: var(--blue); margin-bottom: 4px; }
+  .upload-done .done-label { font-size: 15px; color: var(--text-dim); margin-bottom: 24px; }
+
+  .upload-error { display: none; margin-top: 16px; padding: 12px 16px; border-radius: 8px; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.2); font-size: 13px; color: #f87171; }
+  .upload-error.active { display: block; }
+
+  /* ===== MAP ===== */
+  #mapscreen { flex-direction: row; background: var(--bg); }
+  #sidebar {
+    width: 380px; min-width: 380px; background: var(--surface);
+    display: flex; flex-direction: column; border-right: 1px solid var(--border);
+    z-index: 10;
+  }
+  #map-header {
+    padding: 24px 20px 16px; border-bottom: 1px solid var(--surface2);
+    background: linear-gradient(180deg, #14141a 0%, var(--surface) 100%);
+  }
+  #map-header h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; color: #fff; }
+  #map-header h1 span { color: var(--blue); }
+  #map-header .subtitle { font-size: 13px; color: var(--text-dimmer); margin-top: 4px; }
+
+  #stats {
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1px;
+    background: var(--surface2); border-bottom: 1px solid var(--surface2);
+  }
+  .stat { background: var(--surface); padding: 14px 16px; text-align: center; }
+  .stat .value { font-size: 22px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; }
+  .stat .label { font-size: 11px; color: var(--text-dimmest); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+
+  #chart-section { padding: 16px 20px; border-bottom: 1px solid var(--surface2); }
+  #chart-section h3 { font-size: 11px; color: var(--text-dimmest); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+  #month-chart { display: flex; align-items: flex-end; gap: 3px; height: 60px; }
+  .bar-group { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; }
+  .bar {
+    width: 100%; border-radius: 2px 2px 0 0; background: var(--blue); opacity: 0.6;
+    transition: opacity 0.15s, background 0.15s; min-height: 2px;
+  }
+  .bar-group:hover .bar { opacity: 1; }
+  .bar-group.active .bar { background: var(--blue-light); opacity: 1; }
+  .bar-group.dimmed .bar { opacity: 0.15; }
+  .bar-label { font-size: 9px; color: var(--text-faint); white-space: nowrap; }
+
+  #filters {
+    padding: 12px 20px; border-bottom: 1px solid var(--surface2);
+    display: flex; gap: 8px; align-items: center;
+  }
+  .filter-btn {
+    padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border2);
+    background: transparent; color: var(--text-dim); font-size: 12px; cursor: pointer;
+    transition: all 0.15s; font-family: var(--font);
+  }
+  .filter-btn:hover { border-color: var(--blue); color: #ccc; }
+  .filter-btn.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+
+  #ride-list { flex: 1; overflow-y: auto; padding: 8px 0; }
+  #ride-list::-webkit-scrollbar { width: 6px; }
+  #ride-list::-webkit-scrollbar-track { background: transparent; }
+  #ride-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+  .month-header {
+    padding: 12px 20px 6px; font-size: 11px; font-weight: 600;
+    color: var(--text-dimmest); text-transform: uppercase; letter-spacing: 0.5px;
+    position: sticky; top: 0; background: var(--surface); z-index: 1;
+  }
+  .ride-item {
+    padding: 10px 20px; cursor: pointer; transition: background 0.1s;
+    display: flex; justify-content: space-between; align-items: center;
+    border-left: 3px solid transparent;
+  }
+  .ride-item:hover { background: var(--surface2); }
+  .ride-item.active { background: #1a1a2a; border-left-color: var(--blue); }
+  .ride-item .route { font-size: 13px; color: #ccc; line-height: 1.4; }
+  .ride-item .route .arrow { color: var(--blue); margin: 0 4px; }
+  .ride-item .meta { font-size: 11px; color: var(--text-dimmest); margin-top: 2px; }
+  .ride-item .time { font-size: 12px; color: var(--text-faint); white-space: nowrap; margin-left: 12px; }
+
+  #sidebar-actions {
+    padding: 12px 20px; border-top: 1px solid var(--surface2);
+    display: flex; gap: 8px;
+  }
+  #sidebar-actions button {
+    flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border2);
+    background: transparent; color: var(--text-dim); font-size: 12px; cursor: pointer;
+    transition: all 0.15s; font-family: var(--font);
+  }
+  #sidebar-actions button:hover { border-color: var(--blue); color: #fff; }
+
+  /* Map container */
+  #map-container { flex: 1; position: relative; }
+  #map { width: 100%; height: 100%; }
+
+  .maplibregl-popup-content {
+    background: var(--surface2) !important; color: var(--text) !important;
+    border-radius: 8px !important; padding: 12px 16px !important;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important; border: 1px solid var(--border2) !important;
+    font-family: var(--font) !important;
+  }
+  .maplibregl-popup-tip { border-top-color: var(--surface2) !important; }
+
+  #play-btn {
+    position: absolute; bottom: 24px; right: 24px; z-index: 10;
+    width: 48px; height: 48px; border-radius: 50%; background: var(--blue);
+    border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 16px rgba(59,130,246,0.4); transition: transform 0.15s, background 0.15s;
+  }
+  #play-btn:hover { transform: scale(1.1); background: var(--blue-dark); }
+  #play-btn svg { fill: #fff; width: 20px; height: 20px; }
+
+  #progress-bar {
+    position: absolute; bottom: 0; left: 0; right: 0; height: 3px;
+    background: var(--surface2); z-index: 10; display: none;
+  }
+  #progress-fill { height: 100%; background: var(--blue); width: 0; transition: width 0.1s linear; }
+
+  /* Celebration animation */
+  @keyframes confettiFall { 0% { transform: translateY(-20px) rotate(0deg); opacity: 1; } 100% { transform: translateY(40px) rotate(720deg); opacity: 0; } }
+  @keyframes pulseGlow { 0%, 100% { box-shadow: 0 0 20px rgba(59,130,246,0.2); } 50% { box-shadow: 0 0 40px rgba(59,130,246,0.5); } }
+  .celebrate { animation: pulseGlow 1.5s ease-in-out 3; }
+
+  /* Responsive */
+  @media (max-width: 800px) {
+    #sidebar { width: 100%; min-width: unset; height: 45vh; border-right: none; border-bottom: 1px solid var(--border); }
+    #mapscreen { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ===== SCREEN 1: LANDING ===== -->
+<div id="landing" class="screen active">
+  <div class="logo"><span>Citi</span>bike Heatmap</div>
+  <div class="tagline">See every ride you've ever taken</div>
+  <div class="subtitle">Upload your Citibike receipt emails. Everything stays in your browser.</div>
+  <div class="privacy-badge">
+    <svg viewBox="0 0 24 24"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2z"/></svg>
+    100% Private &mdash; your emails never leave your device
+  </div>
+  <button class="btn-primary" onclick="showScreen('instructions')">Get Started</button>
+</div>
+
+<!-- ===== SCREEN 2: INSTRUCTIONS ===== -->
+<div id="instructions" class="screen hidden">
+  <div class="instructions-card">
+    <h2>How to export your emails</h2>
+    <div class="tab-bar">
+      <button class="tab-btn active" onclick="switchTab(this, 'tab-gmail')">Gmail</button>
+      <button class="tab-btn" onclick="switchTab(this, 'tab-outlook')">Outlook</button>
+      <button class="tab-btn" onclick="switchTab(this, 'tab-apple')">Apple Mail</button>
+    </div>
+    <div id="tab-gmail" class="tab-content active">
+      <div style="font-size:13px;color:var(--text-dim);margin-bottom:16px;">Bulk export all your Citibike receipts at once using Google Takeout:</div>
+      <ol class="step-list">
+        <li>In Gmail, search: <code>from:no-reply@updates.citibikenyc.com subject:"Ride Receipt"</code></li>
+        <li>Select all results, click <strong>"Labels"</strong> (tag icon) and create a new label called <strong>"Citibike"</strong></li>
+        <li>Go to <a href="https://takeout.google.com" target="_blank" style="color:var(--blue);">takeout.google.com</a> &mdash; click <strong>"Deselect all"</strong>, then scroll down and check only <strong>Mail</strong></li>
+        <li>Click <strong>"All Mail data included"</strong> &rarr; select <strong>only the "Citibike" label</strong></li>
+        <li>Click <strong>"Create export"</strong>, wait for the ZIP, download and unzip it &mdash; you'll find an <code>.mbox</code> file</li>
+        <li>Upload that <code>.mbox</code> file here</li>
+      </ol>
+    </div>
+    <div id="tab-outlook" class="tab-content">
+      <div style="font-size:13px;color:var(--text-dim);margin-bottom:16px;">Export all your ride receipts in one drag:</div>
+      <ol class="step-list">
+        <li>Open Outlook Desktop and search: <strong>"Ride Receipt"</strong> from Citi Bike</li>
+        <li>Press <strong>Ctrl+A</strong> (or <strong>Cmd+A</strong> on Mac) to select all results</li>
+        <li>Drag them to a folder on your Desktop &mdash; each becomes a <code>.eml</code> file</li>
+        <li>Upload the whole folder here (or select all the <code>.eml</code> files)</li>
+      </ol>
+      <div style="font-size:12px;color:var(--text-faint);margin-top:12px;padding:10px 14px;background:var(--surface2);border-radius:8px;">
+        <strong>Outlook Web?</strong> Unfortunately there's no bulk download. We recommend adding your account to Outlook Desktop or Apple Mail for the drag-and-drop export.
+      </div>
+    </div>
+    <div id="tab-apple" class="tab-content">
+      <div style="font-size:13px;color:var(--text-dim);margin-bottom:16px;">Export all your ride receipts in one drag:</div>
+      <ol class="step-list">
+        <li>In Mail, search for <strong>"Ride Receipt"</strong> from Citi Bike Receipts</li>
+        <li>Press <strong>Cmd+A</strong> to select all matching emails</li>
+        <li>Drag them to a folder on your Desktop &mdash; creates <code>.eml</code> files for all of them</li>
+        <li>Upload the whole folder here</li>
+      </ol>
+    </div>
+    <div class="instructions-actions">
+      <button class="btn-primary" onclick="showScreen('upload')">I have my files ready &rarr;</button>
+      <div style="margin-top:12px">
+        <button class="btn-secondary" onclick="showScreen('landing')">&larr; Back</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SCREEN 3: UPLOAD ===== -->
+<div id="upload" class="screen hidden">
+  <div class="upload-card">
+    <h2>Upload your ride receipts</h2>
+    <div class="upload-sub">Drag &amp; drop <code>.eml</code> files or an <code>.mbox</code> export</div>
+    <div class="drop-zone" id="drop-zone">
+      <div class="drop-icon">&#128233;</div>
+      <div class="drop-text">Drop your .eml files here</div>
+      <div class="drop-hint">or click to browse &mdash; folders work too</div>
+      <input type="file" id="file-input" multiple accept=".eml,.mbox,.txt" webkitdirectory>
+      <input type="file" id="file-input-files" multiple accept=".eml,.mbox,.txt" style="position:absolute;inset:0;opacity:0;cursor:pointer;">
+    </div>
+    <div class="processing-area" id="processing-area">
+      <div class="progress-text" id="progress-text">Processing...</div>
+      <div class="progress-bar-container"><div class="progress-bar-fill" id="progress-fill-upload"></div></div>
+      <div class="ride-preview-list" id="ride-preview-list"></div>
+    </div>
+    <div class="upload-error" id="upload-error"></div>
+    <div class="upload-done" id="upload-done">
+      <div class="done-count" id="done-count">0</div>
+      <div class="done-label">rides found</div>
+      <button class="btn-primary celebrate" onclick="showMapScreen()">View your heatmap &rarr;</button>
+    </div>
+    <div style="text-align:center;margin-top:16px">
+      <button class="btn-secondary" onclick="showScreen('instructions')">&larr; Back</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SCREEN 4: MAP ===== -->
+<div id="mapscreen" class="screen hidden">
+  <div id="sidebar">
+    <div id="map-header">
+      <h1><span>Citi</span>bike Heatmap</h1>
+      <div class="subtitle" id="date-range"></div>
+    </div>
+    <div id="stats">
+      <div class="stat"><div class="value" id="stat-rides">0</div><div class="label">Rides</div></div>
+      <div class="stat"><div class="value" id="stat-stations">0</div><div class="label">Stations</div></div>
+      <div class="stat"><div class="value" id="stat-points">0</div><div class="label">GPS Points</div></div>
+    </div>
+    <div id="chart-section">
+      <h3>Rides by Month</h3>
+      <div id="month-chart"></div>
+    </div>
+    <div id="filters">
+      <button class="filter-btn active" data-filter="all">All</button>
+      <button class="filter-btn" data-filter="morning">Morning</button>
+      <button class="filter-btn" data-filter="afternoon">Afternoon</button>
+      <button class="filter-btn" data-filter="evening">Evening</button>
+    </div>
+    <div id="ride-list"></div>
+    <div id="sidebar-actions">
+      <button onclick="addMoreRides()">+ Add more rides</button>
+      <button onclick="exportGeoJSON()">Export GeoJSON</button>
+    </div>
+  </div>
+  <div id="map-container">
+    <div id="map"></div>
+    <button id="play-btn" title="Animate rides chronologically">
+      <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+    </button>
+    <div id="progress-bar"><div id="progress-fill"></div></div>
+  </div>
+</div>
+
+<!-- PostalMime: load ESM from CDN via dynamic import -->
+<script>
+  // We'll load PostalMime asynchronously via ESM import
+  var PostalMime;
+  window._postalMimeReady = import('https://esm.sh/postal-mime@2.3.2').then(m => {
+    PostalMime = m.default;
+    console.log('PostalMime loaded:', typeof PostalMime);
+  }).catch(e => console.error('PostalMime load error:', e));
+</script>
+<script src="https://unpkg.com/maplibre-gl@4.1.1/dist/maplibre-gl.js"></script>
+
+<script>
+// =============================================
+// GLOBALS
+// =============================================
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const MONTH_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+let stationsDB = {};
+let geojsonData = { type: 'FeatureCollection', features: [] };
+let map = null;
+let selectedRide = null;
+let activeMonthFilter = null;
+let activeTimeFilter = 'all';
+let isAnimating = false;
+let animationFrame = null;
+
+// =============================================
+// SCREEN NAVIGATION
+// =============================================
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => {
+    s.classList.remove('active');
+    s.classList.add('hidden');
+  });
+  document.getElementById(id).classList.remove('hidden');
+  document.getElementById(id).classList.add('active');
+}
+
+function switchTab(btn, tabId) {
+  btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  btn.closest('.instructions-card').querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.getElementById(tabId).classList.add('active');
+}
+
+// =============================================
+// POLYLINE DECODER (inline, no library needed)
+// =============================================
+function decodePolyline(encoded) {
+  const points = [];
+  let index = 0, lat = 0, lng = 0;
+  while (index < encoded.length) {
+    let shift = 0, result = 0, b;
+    do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+    shift = 0; result = 0;
+    do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+    points.push([lng / 1e5, lat / 1e5]);
+  }
+  return points;
+}
+
+// =============================================
+// EMAIL PARSING
+// =============================================
+function extractRideFromHTML(html) {
+  let body = html.replace(/&amp;/g, '&');
+  const smIdx = body.indexOf('staticmap');
+  if (smIdx < 0) return null;
+
+  const srcStart = body.lastIndexOf('src="', smIdx);
+  if (srcStart < 0) return null;
+  const srcEnd = body.indexOf('"', srcStart + 5);
+  let fullSrc = body.substring(srcStart + 5, srcEnd);
+  // Iteratively decode (handles Cisco/SafeLinks double-encoding)
+  for (let i = 0; i < 5; i++) {
+    try {
+      const decoded = decodeURIComponent(fullSrc);
+      if (decoded === fullSrc) break;
+      fullSrc = decoded;
+    } catch(e) { break; }
+  }
+
+  const polyMatch = fullSrc.match(/polyline=([^&"]+)/);
+  const oLat = fullSrc.match(/origin_lat=([^&"]+)/);
+  const oLng = fullSrc.match(/origin_lng=([^&"]+)/);
+  const dLat = fullSrc.match(/dest_lat=([^&"]+)/);
+  const dLng = fullSrc.match(/dest_lng=([^&"]+)/);
+
+  const textOnly = html.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ');
+  const tripMatch = textOnly.match(/Your Trip\s+(.+?)\s+Start\s+(\d{1,2}:\d{2}\s*[ap]m)\s+(.+?)\s+End\s+(\d{1,2}:\d{2}\s*[ap]m)/i);
+  const dateMatch = textOnly.match(/([A-Z]+\s+\d{1,2},\s+\d{4}\s+AT\s+\d{1,2}:\d{2}\s+[AP]M)/i);
+
+  let coordinates = null;
+  if (polyMatch) {
+    try { coordinates = decodePolyline(polyMatch[1]); } catch(e) {}
+  }
+
+  return {
+    coordinates: coordinates,
+    origin_lat: parseFloat(oLat?.[1]) || null,
+    origin_lng: parseFloat(oLng?.[1]) || null,
+    dest_lat: parseFloat(dLat?.[1]) || null,
+    dest_lng: parseFloat(dLng?.[1]) || null,
+    rideDate: dateMatch?.[1] || null,
+    startStation: tripMatch?.[1]?.trim() || null,
+    startTime: tripMatch?.[2]?.trim() || null,
+    endStation: tripMatch?.[3]?.trim() || null,
+    endTime: tripMatch?.[4]?.trim() || null
+  };
+}
+
+function splitMbox(text) {
+  return text.split(/^From .+\d{4}$/m).filter(s => s.trim().length > 100);
+}
+
+async function parseEmlFile(file) {
+  try {
+    const buffer = await file.arrayBuffer();
+    const parser = new PostalMime();
+    const email = await parser.parse(buffer);
+    if (!email.html) return null;
+    const ride = extractRideFromHTML(email.html);
+    if (ride) {
+      // Use email date header as fallback
+      if (!ride.rideDate && email.date) {
+        ride.emailDateISO = email.date;
+      }
+    }
+    return ride;
+  } catch(e) {
+    return null;
+  }
+}
+
+// =============================================
+// OSRM FALLBACK
+// =============================================
+async function osrmRoute(startLat, startLng, endLat, endLng) {
+  try {
+    const url = `https://router.project-osrm.org/route/v1/cycling/${startLng},${startLat};${endLng},${endLat}?geometries=geojson&overview=full`;
+    const resp = await fetch(url);
+    const data = await resp.json();
+    if (data.code === 'Ok' && data.routes?.[0]) return data.routes[0].geometry.coordinates;
+  } catch(e) {}
+  return null;
+}
+
+// =============================================
+// STATION LOOKUP
+// =============================================
+async function loadStations() {
+  try {
+    const resp = await fetch('assets/stations.json');
+    stationsDB = await resp.json();
+  } catch(e) {
+    stationsDB = {};
+  }
+}
+
+function findStationCoords(name) {
+  if (!name) return null;
+  if (stationsDB[name]) return stationsDB[name];
+  // Fuzzy: try trimming, lowercase match
+  const lower = name.toLowerCase().trim();
+  for (const [k, v] of Object.entries(stationsDB)) {
+    if (k.toLowerCase().trim() === lower) return v;
+  }
+  return null;
+}
+
+// =============================================
+// FILE PROCESSING
+// =============================================
+async function processFiles(files) {
+  // Ensure PostalMime is loaded
+  await window._postalMimeReady;
+  const area = document.getElementById('processing-area');
+  const progressText = document.getElementById('progress-text');
+  const progressFill = document.getElementById('progress-fill-upload');
+  const previewList = document.getElementById('ride-preview-list');
+  const doneSection = document.getElementById('upload-done');
+  const errorSection = document.getElementById('upload-error');
+
+  area.classList.add('active');
+  doneSection.classList.remove('active');
+  errorSection.classList.remove('active');
+  previewList.innerHTML = '';
+
+  // Collect all files (handle directories and mbox)
+  let allFiles = [];
+  for (const file of files) {
+    if (file.name.endsWith('.mbox') || file.name.endsWith('.txt')) {
+      // Try mbox split
+      const text = await file.text();
+      const parts = splitMbox(text);
+      if (parts.length > 1) {
+        parts.forEach((part, i) => {
+          allFiles.push({ name: `${file.name}_part${i}.eml`, text: () => Promise.resolve(part), isMbox: true, raw: part });
+        });
+      } else {
+        allFiles.push(file);
+      }
+    } else {
+      allFiles.push(file);
+    }
+  }
+
+  let processed = 0;
+  let found = 0;
+  let errors = 0;
+  let osrmQueue = [];
+  const newRides = [];
+
+  for (const file of allFiles) {
+    processed++;
+    progressText.textContent = `Processing ${processed}/${allFiles.length} files... Found ${found} rides`;
+    progressFill.style.width = (processed / allFiles.length * 100) + '%';
+
+    let ride = null;
+    if (file.isMbox) {
+      // Parse raw text as email
+      try {
+        const parser = new PostalMime();
+        const email = await parser.parse(new TextEncoder().encode(file.raw));
+        if (email.html) ride = extractRideFromHTML(email.html);
+      } catch(e) {}
+    } else {
+      ride = await parseEmlFile(file);
+    }
+
+    if (!ride) { continue; }
+
+    // If we have coordinates, great
+    if (ride.coordinates && ride.coordinates.length > 1) {
+      found++;
+      const feat = rideToFeature(ride, found);
+      newRides.push(feat);
+      addPreviewItem(previewList, ride);
+    } else {
+      // Try OSRM fallback using station names or origin/dest coords
+      let startCoords = null, endCoords = null;
+      if (ride.origin_lat && ride.origin_lng) {
+        startCoords = [ride.origin_lat, ride.origin_lng];
+      } else if (ride.startStation) {
+        const sc = findStationCoords(ride.startStation);
+        if (sc) startCoords = sc;
+      }
+      if (ride.dest_lat && ride.dest_lng) {
+        endCoords = [ride.dest_lat, ride.dest_lng];
+      } else if (ride.endStation) {
+        const ec = findStationCoords(ride.endStation);
+        if (ec) endCoords = ec;
+      }
+      if (startCoords && endCoords) {
+        osrmQueue.push({ ride, startCoords, endCoords });
+      }
+    }
+
+    // Yield to UI
+    if (processed % 5 === 0) await new Promise(r => setTimeout(r, 0));
+  }
+
+  // Process OSRM fallbacks (rate-limited)
+  if (osrmQueue.length > 0) {
+    progressText.textContent = `Fetching ${osrmQueue.length} routes from OSRM...`;
+    for (let i = 0; i < osrmQueue.length; i++) {
+      const { ride, startCoords, endCoords } = osrmQueue[i];
+      const coords = await osrmRoute(startCoords[0], startCoords[1], endCoords[0], endCoords[1]);
+      if (coords && coords.length > 1) {
+        ride.coordinates = coords;
+        found++;
+        const feat = rideToFeature(ride, found, 'osrm_fallback');
+        newRides.push(feat);
+        addPreviewItem(previewList, ride);
+      }
+      progressText.textContent = `Fetching routes... ${i+1}/${osrmQueue.length} (Found ${found} total)`;
+      progressFill.style.width = ((processed + i) / (allFiles.length + osrmQueue.length) * 100) + '%';
+      // Rate limit OSRM
+      if (i < osrmQueue.length - 1) await new Promise(r => setTimeout(r, 200));
+    }
+  }
+
+  progressFill.style.width = '100%';
+
+  if (found === 0) {
+    progressText.textContent = `Processed ${allFiles.length} files. No rides found.`;
+    errorSection.textContent = `No Citibike ride receipts were detected in the uploaded files. Make sure you're uploading Citibike receipt emails (.eml files).`;
+    errorSection.classList.add('active');
+    return;
+  }
+
+  // Merge with existing rides
+  geojsonData.features = geojsonData.features.concat(newRides);
+  // Renumber
+  geojsonData.features.forEach((f, i) => f.properties.ride_number = i + 1);
+  // Save to localStorage
+  saveToStorage();
+
+  progressText.textContent = `Done! Found ${found} rides in ${allFiles.length} files.`;
+  document.getElementById('done-count').textContent = geojsonData.features.length;
+  doneSection.classList.add('active');
+}
+
+function rideToFeature(ride, number, source) {
+  // Parse date for email_date ISO
+  let emailDateISO = ride.emailDateISO || null;
+  if (!emailDateISO && ride.rideDate) {
+    try {
+      const d = new Date(ride.rideDate.replace(' AT ', ' '));
+      if (!isNaN(d)) emailDateISO = d.toISOString();
+    } catch(e) {}
+  }
+
+  return {
+    type: 'Feature',
+    geometry: { type: 'LineString', coordinates: ride.coordinates },
+    properties: {
+      ride_number: number,
+      date: ride.rideDate || null,
+      email_date: emailDateISO,
+      start_station: ride.startStation || null,
+      end_station: ride.endStation || null,
+      start_time: ride.startTime || null,
+      end_time: ride.endTime || null,
+      point_count: ride.coordinates.length,
+      source: source || 'email_polyline'
+    }
+  };
+}
+
+function addPreviewItem(list, ride) {
+  const div = document.createElement('div');
+  div.className = 'ride-preview';
+  const start = ride.startStation || 'Unknown';
+  const end = ride.endStation || 'Unknown';
+  div.innerHTML = `<span class="rp-route">${start}<span class="rp-arrow"> &rarr; </span>${end}</span><span class="rp-time">${ride.startTime || ''}</span>`;
+  list.appendChild(div);
+  list.scrollTop = list.scrollHeight;
+}
+
+// =============================================
+// DRAG AND DROP
+// =============================================
+function setupUpload() {
+  const zone = document.getElementById('drop-zone');
+  const fileInputFiles = document.getElementById('file-input-files');
+  const fileInputDir = document.getElementById('file-input');
+
+  // Prevent default drag behaviors on body
+  ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
+    document.body.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); });
+  });
+
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+  zone.addEventListener('drop', async e => {
+    e.preventDefault();
+    zone.classList.remove('dragover');
+    const files = await getAllFiles(e.dataTransfer);
+    if (files.length > 0) processFiles(files);
+  });
+
+  // The visible drop zone has two overlapping file inputs: one for directories, one for files
+  // We'll use just the file-based one and handle the click
+  fileInputFiles.addEventListener('change', () => {
+    if (fileInputFiles.files.length > 0) processFiles(Array.from(fileInputFiles.files));
+  });
+  fileInputDir.addEventListener('change', () => {
+    if (fileInputDir.files.length > 0) processFiles(Array.from(fileInputDir.files));
+  });
+
+  // Clicking the zone should open regular file picker
+  zone.addEventListener('click', (e) => {
+    if (e.target === zone || e.target.closest('.drop-icon') || e.target.closest('.drop-text') || e.target.closest('.drop-hint')) {
+      fileInputFiles.click();
+    }
+  });
+}
+
+async function getAllFiles(dataTransfer) {
+  const files = [];
+  if (dataTransfer.items) {
+    const entries = [];
+    for (const item of dataTransfer.items) {
+      const entry = item.webkitGetAsEntry?.();
+      if (entry) entries.push(entry);
+    }
+    for (const entry of entries) {
+      await readEntry(entry, files);
+    }
+  }
+  if (files.length === 0) {
+    // Fallback to dataTransfer.files
+    for (const f of dataTransfer.files) {
+      if (f.name.endsWith('.eml') || f.name.endsWith('.mbox') || f.name.endsWith('.txt')) {
+        files.push(f);
+      }
+    }
+  }
+  return files;
+}
+
+function readEntry(entry, files) {
+  return new Promise(resolve => {
+    if (entry.isFile) {
+      entry.file(f => {
+        if (f.name.endsWith('.eml') || f.name.endsWith('.mbox') || f.name.endsWith('.txt')) {
+          files.push(f);
+        }
+        resolve();
+      });
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      reader.readEntries(async entries => {
+        for (const e of entries) {
+          await readEntry(e, files);
+        }
+        resolve();
+      });
+    } else {
+      resolve();
+    }
+  });
+}
+
+// =============================================
+// LOCAL STORAGE
+// =============================================
+function saveToStorage() {
+  try {
+    localStorage.setItem('citibike_rides', JSON.stringify(geojsonData));
+  } catch(e) {
+    // Storage full, silently fail
+  }
+}
+
+function loadFromStorage() {
+  try {
+    const data = localStorage.getItem('citibike_rides');
+    if (data) {
+      const parsed = JSON.parse(data);
+      if (parsed?.features?.length > 0) {
+        geojsonData = parsed;
+        return true;
+      }
+    }
+  } catch(e) {}
+  return false;
+}
+
+// =============================================
+// SHOW MAP
+// =============================================
+function showMapScreen() {
+  showScreen('mapscreen');
+  // Prepare features
+  geojsonData.features.sort((a, b) => {
+    const da = parseEmailDate(a.properties.email_date);
+    const db = parseEmailDate(b.properties.email_date);
+    return (da || 0) - (db || 0);
+  });
+  geojsonData.features.forEach((f, i) => {
+    f.properties._idx = i;
+    f.properties._hour = parseRideTime(f.properties.start_time);
+    f.properties._timeOfDay = getTimeOfDay(f.properties._hour);
+    f.properties._monthKey = monthKey(f.properties.email_date);
+  });
+
+  if (!map) {
+    initMap();
+  } else {
+    // Update data on existing map
+    if (map.getSource('routes')) {
+      map.getSource('routes').setData(geojsonData);
+    }
+  }
+  updateStats();
+  buildChart();
+  buildRideList();
+}
+
+function addMoreRides() {
+  showScreen('upload');
+  // Reset upload UI
+  document.getElementById('processing-area').classList.remove('active');
+  document.getElementById('upload-done').classList.remove('active');
+  document.getElementById('upload-error').classList.remove('active');
+  document.getElementById('progress-fill-upload').style.width = '0';
+  document.getElementById('ride-preview-list').innerHTML = '';
+}
+
+function exportGeoJSON() {
+  // Strip internal properties
+  const exportData = {
+    type: 'FeatureCollection',
+    features: geojsonData.features.map(f => ({
+      type: 'Feature',
+      geometry: f.geometry,
+      properties: {
+        ride_number: f.properties.ride_number,
+        date: f.properties.date,
+        email_date: f.properties.email_date,
+        start_station: f.properties.start_station,
+        end_station: f.properties.end_station,
+        start_time: f.properties.start_time,
+        end_time: f.properties.end_time,
+        point_count: f.properties.point_count,
+        source: f.properties.source
+      }
+    }))
+  };
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'citibike_rides.geojson';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// =============================================
+// DATE/TIME HELPERS
+// =============================================
+function parseEmailDate(d) { return d ? new Date(d) : null; }
+function parseRideTime(timeStr) {
+  if (!timeStr) return null;
+  const m = timeStr.match(/(\d{1,2}):(\d{2})\s*(am|pm)/i);
+  if (!m) return null;
+  let h = parseInt(m[1]);
+  if (m[3].toLowerCase() === 'pm' && h !== 12) h += 12;
+  if (m[3].toLowerCase() === 'am' && h === 12) h = 0;
+  return h;
+}
+function getTimeOfDay(h) {
+  if (h === null) return 'unknown';
+  if (h < 12) return 'morning';
+  if (h < 17) return 'afternoon';
+  return 'evening';
+}
+function formatMonth(dateStr) {
+  const d = parseEmailDate(dateStr);
+  if (!d || isNaN(d)) return 'Unknown';
+  return MONTHS[d.getMonth()] + ' ' + d.getFullYear();
+}
+function monthKey(dateStr) {
+  const d = parseEmailDate(dateStr);
+  if (!d || isNaN(d)) return '0000-00';
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+}
+
+// =============================================
+// MAP
+// =============================================
+function initMap() {
+  map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+      sources: {
+        'dark-raster': {
+          type: 'raster',
+          tiles: [
+            'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+            'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+            'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
+          ],
+          tileSize: 256,
+          maxzoom: 19,
+          attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        }
+      },
+      layers: [{ id: 'dark-tiles', type: 'raster', source: 'dark-raster', minzoom: 0, maxzoom: 19 }]
+    },
+    center: [-73.9597, 40.7804],
+    zoom: 12.5,
+    maxZoom: 18,
+    minZoom: 10
+  });
+
+  map.on('load', () => {
+    map.addSource('routes', { type: 'geojson', data: geojsonData });
+
+    map.addLayer({
+      id: 'routes-glow', type: 'line', source: 'routes',
+      paint: { 'line-color': '#3b82f6', 'line-width': 5, 'line-opacity': 0.2, 'line-blur': 4 }
+    });
+    map.addLayer({
+      id: 'routes-base', type: 'line', source: 'routes',
+      paint: { 'line-color': '#60a5fa', 'line-width': 2.5, 'line-opacity': 0.4 }
+    });
+
+    // Highlighted route
+    map.addSource('highlight', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({
+      id: 'highlight-glow', type: 'line', source: 'highlight',
+      paint: { 'line-color': '#f59e0b', 'line-width': 8, 'line-opacity': 0.4, 'line-blur': 6 }
+    });
+    map.addLayer({
+      id: 'highlight-line', type: 'line', source: 'highlight',
+      paint: { 'line-color': '#fbbf24', 'line-width': 3, 'line-opacity': 0.9 }
+    });
+
+    // Animated routes source
+    map.addSource('animated', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({
+      id: 'animated-glow', type: 'line', source: 'animated',
+      paint: { 'line-color': '#3b82f6', 'line-width': 4, 'line-opacity': 0.15, 'line-blur': 3 }
+    });
+    map.addLayer({
+      id: 'animated-line', type: 'line', source: 'animated',
+      paint: { 'line-color': '#60a5fa', 'line-width': 2, 'line-opacity': 0.35 }
+    });
+
+    // Click on route
+    map.on('click', 'routes-base', (e) => {
+      if (e.features?.length) {
+        const idx = e.features[0].properties._idx;
+        selectRide(idx);
+      }
+    });
+    map.on('mouseenter', 'routes-base', () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', 'routes-base', () => { map.getCanvas().style.cursor = ''; });
+
+    // Fit bounds to data
+    if (geojsonData.features.length > 0) {
+      const bounds = new maplibregl.LngLatBounds();
+      geojsonData.features.forEach(f => f.geometry.coordinates.forEach(c => bounds.extend(c)));
+      map.fitBounds(bounds, { padding: 60, duration: 1000 });
+    }
+  });
+}
+
+// =============================================
+// STATS, CHART, RIDE LIST
+// =============================================
+function updateStats(features) {
+  const f = features || geojsonData.features;
+  document.getElementById('stat-rides').textContent = f.length;
+  const stations = new Set();
+  let points = 0;
+  f.forEach(feat => {
+    if (feat.properties.start_station) stations.add(feat.properties.start_station);
+    if (feat.properties.end_station) stations.add(feat.properties.end_station);
+    points += feat.geometry.coordinates.length;
+  });
+  document.getElementById('stat-stations').textContent = stations.size;
+  document.getElementById('stat-points').textContent = points.toLocaleString();
+
+  const dates = f.map(feat => parseEmailDate(feat.properties.email_date)).filter(d => d && !isNaN(d)).sort((a, b) => a - b);
+  if (dates.length) {
+    const first = dates[0], last = dates[dates.length - 1];
+    document.getElementById('date-range').textContent =
+      `${MONTHS[first.getMonth()]} ${first.getFullYear()} \u2013 ${MONTHS[last.getMonth()]} ${last.getFullYear()}`;
+  }
+}
+
+function buildChart() {
+  const monthCounts = {};
+  geojsonData.features.forEach(f => {
+    const mk = f.properties._monthKey;
+    monthCounts[mk] = (monthCounts[mk] || 0) + 1;
+  });
+  const sortedMonths = Object.keys(monthCounts).sort();
+  const maxCount = Math.max(...Object.values(monthCounts));
+  const chart = document.getElementById('month-chart');
+  chart.innerHTML = '';
+
+  sortedMonths.forEach(mk => {
+    const count = monthCounts[mk];
+    const pct = (count / maxCount) * 100;
+    const [y, m] = mk.split('-');
+    const label = MONTHS[parseInt(m) - 1]?.substring(0, 1);
+
+    const group = document.createElement('div');
+    group.className = 'bar-group';
+    group.dataset.month = mk;
+    group.innerHTML = `<div class="bar" style="height:${pct}%" title="${MONTHS[parseInt(m) - 1]} ${y}: ${count} rides"></div><div class="bar-label">${label}</div>`;
+    group.addEventListener('click', () => toggleMonthFilter(mk));
+    chart.appendChild(group);
+  });
+}
+
+function buildRideList(features) {
+  const list = document.getElementById('ride-list');
+  list.innerHTML = '';
+  const f = features || getFilteredFeatures();
+  let currentMonth = null;
+
+  const sorted = [...f].sort((a, b) => {
+    const da = parseEmailDate(a.properties.email_date);
+    const db = parseEmailDate(b.properties.email_date);
+    return (db || 0) - (da || 0);
+  });
+
+  sorted.forEach(feat => {
+    const p = feat.properties;
+    const mk = formatMonth(p.email_date);
+    if (mk !== currentMonth) {
+      currentMonth = mk;
+      const header = document.createElement('div');
+      header.className = 'month-header';
+      header.textContent = mk;
+      list.appendChild(header);
+    }
+
+    const item = document.createElement('div');
+    item.className = 'ride-item';
+    item.dataset.idx = p._idx;
+    const start = p.start_station || 'Unknown';
+    const end = p.end_station || 'Unknown';
+    const time = p.start_time || '';
+
+    item.innerHTML = `
+      <div>
+        <div class="route">${start}<span class="arrow">\u2192</span>${end}</div>
+        <div class="meta">${p.date || ''}</div>
+      </div>
+      <div class="time">${time}</div>
+    `;
+    item.addEventListener('click', () => selectRide(p._idx));
+    list.appendChild(item);
+  });
+}
+
+function getFilteredFeatures() {
+  return geojsonData.features.filter(f => {
+    if (activeMonthFilter && f.properties._monthKey !== activeMonthFilter) return false;
+    if (activeTimeFilter !== 'all' && f.properties._timeOfDay !== activeTimeFilter) return false;
+    return true;
+  });
+}
+
+function applyFilters() {
+  const filtered = getFilteredFeatures();
+  const filteredGeoJSON = { type: 'FeatureCollection', features: filtered };
+  if (map && map.getSource('routes')) {
+    map.getSource('routes').setData(filteredGeoJSON);
+  }
+  selectedRide = null;
+  if (map && map.getSource('highlight')) {
+    map.getSource('highlight').setData({ type: 'FeatureCollection', features: [] });
+  }
+  buildRideList(filtered);
+  updateStats(filtered);
+
+  if (filtered.length > 0 && map) {
+    const bounds = new maplibregl.LngLatBounds();
+    filtered.forEach(f => f.geometry.coordinates.forEach(c => bounds.extend(c)));
+    map.fitBounds(bounds, { padding: 60, duration: 800 });
+  }
+
+  document.querySelectorAll('.bar-group').forEach(g => {
+    g.classList.toggle('active', g.dataset.month === activeMonthFilter);
+    g.classList.toggle('dimmed', activeMonthFilter && g.dataset.month !== activeMonthFilter);
+  });
+}
+
+function toggleMonthFilter(mk) {
+  activeMonthFilter = activeMonthFilter === mk ? null : mk;
+  applyFilters();
+}
+
+function setupFilters() {
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeTimeFilter = btn.dataset.filter;
+      applyFilters();
+    });
+  });
+}
+
+function selectRide(idx) {
+  selectedRide = idx;
+  const feat = geojsonData.features.find(f => f.properties._idx === idx);
+  if (!feat || !map) return;
+
+  map.getSource('highlight').setData({ type: 'FeatureCollection', features: [feat] });
+
+  const coords = feat.geometry.coordinates;
+  const bounds = coords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
+  map.fitBounds(bounds, { padding: 120, duration: 600, maxZoom: 15 });
+
+  document.querySelectorAll('.ride-item').forEach(el => {
+    el.classList.toggle('active', parseInt(el.dataset.idx) === idx);
+  });
+  const activeItem = document.querySelector(`.ride-item[data-idx="${idx}"]`);
+  if (activeItem) activeItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// =============================================
+// ANIMATION
+// =============================================
+function setupPlayButton() {
+  document.getElementById('play-btn').addEventListener('click', () => {
+    if (isAnimating) stopAnimation();
+    else startAnimation();
+  });
+}
+
+function startAnimation() {
+  isAnimating = true;
+  const btn = document.getElementById('play-btn');
+  btn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
+
+  const bar = document.getElementById('progress-bar');
+  const fill = document.getElementById('progress-fill');
+  bar.style.display = 'block';
+
+  map.setPaintProperty('routes-base', 'line-opacity', 0);
+  map.setPaintProperty('routes-glow', 'line-opacity', 0);
+
+  const sorted = [...geojsonData.features].sort((a, b) => {
+    const da = parseEmailDate(a.properties.email_date);
+    const db = parseEmailDate(b.properties.email_date);
+    return (da || 0) - (db || 0);
+  });
+
+  let current = 0;
+  const shownFeatures = [];
+
+  function step() {
+    if (!isAnimating || current >= sorted.length) {
+      stopAnimation();
+      return;
+    }
+    shownFeatures.push(sorted[current]);
+    map.getSource('animated').setData({ type: 'FeatureCollection', features: [...shownFeatures] });
+    map.getSource('highlight').setData({ type: 'FeatureCollection', features: [sorted[current]] });
+
+    fill.style.width = ((current + 1) / sorted.length * 100) + '%';
+
+    const idx = sorted[current].properties._idx;
+    document.querySelectorAll('.ride-item').forEach(el => {
+      el.classList.toggle('active', parseInt(el.dataset.idx) === idx);
+    });
+    const activeItem = document.querySelector(`.ride-item[data-idx="${idx}"]`);
+    if (activeItem) activeItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    current++;
+    animationFrame = setTimeout(step, 120);
+  }
+  step();
+}
+
+function stopAnimation() {
+  isAnimating = false;
+  clearTimeout(animationFrame);
+  const btn = document.getElementById('play-btn');
+  btn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+  document.getElementById('progress-bar').style.display = 'none';
+  document.getElementById('progress-fill').style.width = '0';
+
+  if (map) {
+    map.setPaintProperty('routes-base', 'line-opacity', 0.4);
+    map.setPaintProperty('routes-glow', 'line-opacity', 0.2);
+    map.getSource('animated').setData({ type: 'FeatureCollection', features: [] });
+    map.getSource('highlight').setData({ type: 'FeatureCollection', features: [] });
+  }
+}
+
+// =============================================
+// INIT
+// =============================================
+async function init() {
+  await loadStations();
+  setupUpload();
+  setupFilters();
+  setupPlayButton();
+
+  // Check localStorage for existing data
+  if (loadFromStorage()) {
+    // Show a "resume" option on landing
+    const landing = document.getElementById('landing');
+    const resumeBtn = document.createElement('button');
+    resumeBtn.className = 'btn-secondary';
+    resumeBtn.style.marginTop = '12px';
+    resumeBtn.style.display = 'block';
+    resumeBtn.style.marginLeft = 'auto';
+    resumeBtn.style.marginRight = 'auto';
+    resumeBtn.textContent = `View saved heatmap (${geojsonData.features.length} rides)`;
+    resumeBtn.addEventListener('click', () => showMapScreen());
+    landing.querySelector('.btn-primary').insertAdjacentElement('afterend', resumeBtn);
+  }
+}
+
+init();
+</script>
+</body>
+</html>
